@@ -1,0 +1,198 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <fcntl.h>
+#include <stdlib.h>
+#include <errno.h>
+
+struct GDBState {
+    int fd;
+};
+
+static void gdbserver_accept(struct GDBState *s)
+{
+    struct sockaddr_in sockaddr;
+    socklen_t len;
+    int val, fd;
+
+    for (;;) {
+        len = sizeof(sockaddr);
+        fd = accept(s->fd, (struct sockaddr *)&sockaddr, &len);
+        if (fd < 0 && errno != EINTR) {
+            perror("accept");
+            return;
+        } else if (fd >= 0) {
+            break;
+        }
+    }
+
+    /* set short latency */
+    val = 1;
+    setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (char *)&val, sizeof(val));
+
+    s->fd = fd;
+
+    fcntl(fd, F_SETFL, O_NONBLOCK);
+}
+
+static int gdbserver_open(int port)
+{
+    struct sockaddr_in sockaddr;
+    int fd, val, ret;
+
+    fd = socket(PF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        perror("socket");
+        return -1;
+    }
+
+    val = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (char *)&val, sizeof(val));
+
+    sockaddr.sin_family = AF_INET;
+    sockaddr.sin_port = htons(port);
+    sockaddr.sin_addr.s_addr = 0;
+
+    ret = bind(fd, (struct sockaddr *)&sockaddr, sizeof(sockaddr));
+    if (ret < 0) {
+        perror("bind");
+        close(fd);
+        return -1;
+    }
+
+    ret = listen(fd, 0);
+    if (ret < 0) {
+        perror("listen");
+        close(fd);
+        return -1;
+    }
+
+    return fd;
+}
+
+static int get_char(struct GDBState *s)
+{
+    uint8_t ch;
+    int ret;
+    ret = read(s->fd, &ch, 1);
+    if (ret < 0) {
+        if (errno == EINTR || errno == EAGAIN)
+            return -1;
+        perror("recv");
+        return -1;
+    } else if (ret == 0) {
+        return -1;
+    }
+
+    return ch;
+}
+
+static void htoa(uint8_t checksum, char *out)
+{
+    uint8_t tmp = checksum / 16;
+    if (tmp > 9)
+        *out++ = tmp + 'W';
+    else
+        *out++ = tmp + '0';
+
+    checksum -= tmp * 16;
+    if (checksum > 9)
+        checksum += 'W';
+    else
+        checksum += '0';
+    *out = checksum;
+}
+
+static uint8_t do_checksum(char *ptr)
+{
+    uint8_t ret = 0;
+    ptr += 2;
+    do {
+        ret += *ptr++;
+    } while (*ptr != '#');
+
+    return ret;
+}
+
+static void gdb_reply(struct GDBState *s, char *ptr)
+{
+    char outbuf[256] = "";
+    char *outptr = &outbuf[0];
+    size_t len = strlen(ptr);
+    uint8_t checksum;
+
+    if (len > sizeof(outbuf)) {
+        printf("%s: input size is too long\n", __FUNCTION__);
+        exit(1);
+    }
+
+    *outptr++ = '+';
+    *outptr++ = '$';
+    strncpy(outptr, ptr, len);
+    outptr += len;
+    *outptr++ = '#';
+    checksum = do_checksum(&outbuf[0]);
+    htoa(checksum, outptr);
+    outptr += 2;
+    *outptr = '\0';
+
+    printf("reply: %s\n", outbuf);
+    write(s->fd, outbuf, strlen(outbuf));
+}
+
+static int gdbserver_main(struct GDBState *s)
+{
+    char buf[256];
+    char *ptr = &buf[0];
+    int ret;
+
+    do {
+        ret = get_char(s);
+        if (ret > 0)
+            *ptr++ = (char)ret;
+    } while ((char)ret != '#');
+
+    ret = get_char(s);
+    if (ret > 0)
+        *ptr++ = (char)ret;
+    ret = get_char(s);
+    if (ret > 0)
+        *ptr++ = (char)ret;
+
+    *ptr = '\0';
+
+/* TODO: must check checksum here
+
+    uint8_t checksum = do_checksum(&buf[0]);
+    printf("%s\n", buf);
+*/
+
+    gdb_reply(s, "PacketSize=1000");
+    return 0;
+}
+
+int main()
+{
+    struct GDBState *s;
+    int fd = gdbserver_open(1234);
+
+    if (fd == -1) {
+        return -1;
+    }
+
+    s = (struct GDBState*)malloc(sizeof(struct GDBState));
+    s->fd = fd;
+
+    gdbserver_accept(s);
+    gdbserver_main(s);
+
+    close(fd);
+    free(s);
+    return 0;
+}
+
