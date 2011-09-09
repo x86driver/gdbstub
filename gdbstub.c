@@ -149,29 +149,26 @@ static int gdbserver_main(struct GDBState *s)
 {
     char buf[256];
     char *ptr = &buf[0];
+    int count = 0;
     int ret;
 
     do {
         ret = get_char(s);
         if (ret > 0)
             *ptr++ = (char)ret;
-    } while ((char)ret != '#');
-
-    ret = get_char(s);
-    if (ret > 0)
-        *ptr++ = (char)ret;
-    ret = get_char(s);
-    if (ret > 0)
-        *ptr++ = (char)ret;
+        if (ret == '#')
+            count = -3;
+        ++count;
+    } while (count != 0);
 
     *ptr = '\0';
 
 /* TODO: must check checksum here
 
     uint8_t checksum = do_checksum(&buf[0]);
-    printf("%s\n", buf);
 */
 
+    printf("%s\n", buf);
     gdb_reply(s, "PacketSize=1000");
     return 0;
 }
