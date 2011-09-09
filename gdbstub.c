@@ -111,6 +111,10 @@ static void htoa(uint8_t checksum, char *out)
 static uint8_t do_checksum(char *ptr)
 {
     uint8_t ret = 0;
+
+    if (strlen(ptr) == 3)
+        return 0;
+
     ptr += 2;
     do {
         ret += *ptr++;
@@ -145,10 +149,8 @@ static void gdb_reply(struct GDBState *s, char *ptr)
     write(s->fd, outbuf, strlen(outbuf));
 }
 
-static int gdbserver_main(struct GDBState *s)
+static int get_packet(struct GDBState *s, char *ptr)
 {
-    char buf[256];
-    char *ptr = &buf[0];
     int count = 0;
     int ret;
 
@@ -168,8 +170,40 @@ static int gdbserver_main(struct GDBState *s)
     uint8_t checksum = do_checksum(&buf[0]);
 */
 
-    printf("%s\n", buf);
-    gdb_reply(s, "PacketSize=1000");
+//    printf("%s\n", buf);
+//    gdb_reply(s, "PacketSize=1000");
+    return 0;
+}
+
+static int gdbserver_main(struct GDBState *s)
+{
+    char buf[256];
+    char *ptr;
+
+    for (;;) {
+        get_packet(s, &buf[0]);
+        printf("%s\n", buf);
+        ptr = &buf[3];
+        switch (buf[2]) {
+            case '?':
+                gdb_reply(s, "S05");
+                break;
+            case 'H':
+                gdb_reply(s, "");
+                break;
+            case 'q':
+                if (!strncmp(ptr, "Supported", 9))
+                    gdb_reply(s, "");
+                else if (*ptr == 'C')
+                    gdb_reply(s, "QC1");
+                else
+                    gdb_reply(s, "");
+                break;
+            default:
+                return 0;
+        }
+    }
+
     return 0;
 }
 
