@@ -2,11 +2,17 @@
 #include "wrapper.h"
 
 static uint32_t reg_table[CPU_REGS] = {
-    0, 0x4007f41b, 0, 0,
+    0, 0x408003f8, 0, 0,
     0, 0, 0, 0,
-    0, 0, 0x8000, 0,
-    0, 0x4007f2c8, 0, 0x8204,
-    0x10
+    0, 0, 0x8294, 0,
+    0, 0x400802a8, 0, 0x8204,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0, 0, 0,
+    0, 0x10
 };
 
 uint32_t get_reg(struct CPUState *env, int reg)
