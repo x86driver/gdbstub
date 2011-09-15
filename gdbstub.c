@@ -14,19 +14,59 @@
 
 struct GDBState {
     int fd;
+    struct CPUState *env;
 };
 
-#if 0
-static void cpu_read_registers(char *buf)
+static inline uint8_t tohex(uint8_t value)
 {
-    int i;
-    int regs[CPU_REGS];
+    return (value > 9 ? value + 'W' : value + '0');
+}
+
+static void cpu_read_registers(struct GDBState *s, char *buf)
+{
+    size_t i;
+    uint32_t regs[CPU_REGS];
+    uint8_t *regptr = (uint8_t*)&regs[0];
+    uint8_t tmp;
 
     for (i = 0; i < CPU_REGS; ++i) {
-        regs[i] = get_reg(env, i);
+        regs[i] = get_reg(s->env, i);
     }
+
+    for (i = 0; i < sizeof(regs); ++i) {
+        tmp = *regptr++;
+        *buf++ = tohex(tmp >> 4);
+        *buf++ = tohex(tmp & 0x0f);
+    }
+
+    *buf = '\0';
 }
-#endif
+
+static void cpu_read_memory(struct GDBState *s, uint32_t addr, uint32_t len, char *buf)
+{
+    uint32_t i;
+    uint32_t mem[MAX_PACKET_LEN / 8];
+    uint8_t *memptr = (uint8_t*)&mem[0];
+    uint8_t tmp;
+
+    if ((len * 2) > (MAX_PACKET_LEN / 8)) { /* one byte must use two byte ascii */
+        printf("read memory greater than MAX_PACKET_LEN: %d\n", len);
+        return;
+    }
+
+    for (i = 0; i < len / 4; ++i) {
+        mem[i] = get_mem(s->env, addr);
+        addr += 4;
+    }
+
+    for (i = 0; i < (len * 2); ++i) {
+        tmp = *memptr++;
+        *buf++ = tohex(tmp >> 4);
+        *buf++ = tohex(tmp & 0x0f);
+    }
+
+    *buf = '\0';
+}
 
 static void gdbserver_accept(struct GDBState *s)
 {
@@ -106,11 +146,6 @@ static int get_char(struct GDBState *s)
     return ch;
 }
 
-static uint8_t tohex(uint8_t value)
-{
-    return (value > 9 ? value + 'W' : value + '0');
-}
-
 static uint8_t do_checksum(char *ptr)
 {
     uint8_t ret = 0;
@@ -181,7 +216,9 @@ static int get_packet(struct GDBState *s, char *ptr)
 static int gdbserver_main(struct GDBState *s)
 {
     char buf[MAX_PACKET_LEN];
+    char outbuf[MAX_PACKET_LEN];
     char *ptr;
+    uint32_t addr, len;
 
     for (;;) {
         get_packet(s, &buf[0]);
@@ -191,12 +228,27 @@ static int gdbserver_main(struct GDBState *s)
             case '?':
                 gdb_reply(s, "S05");
                 break;
-//            case 'g':
-//                cpu_read_registers(buf);
-//                gdb_reply(s, buf);
-//                break;
+            case 'g':
+                cpu_read_registers(s, outbuf);
+                gdb_reply(s, outbuf);
+                break;
             case 'H':
                 gdb_reply(s, "");
+                break;
+            case 'k':
+                goto end_command;
+            case 'm':
+                /* +$m9200,4#98 */
+                addr = strtoull(ptr, (char **)&ptr, 16);
+                if (*ptr == ',')
+                    ++ptr;
+                len = strtoull(ptr, NULL, 16);
+                cpu_read_memory(s, addr, len, outbuf);
+                gdb_reply(s, outbuf);
+                break;
+            case 'p':
+                outbuf[0] = '\0';
+                gdb_reply(s, outbuf);
                 break;
             case 'q':
                 if (!strncmp(ptr, "Supported", 9))
@@ -210,6 +262,8 @@ static int gdbserver_main(struct GDBState *s)
                 return 0;
         }
     }
+
+end_command:
 
     return 0;
 }
@@ -229,6 +283,7 @@ int main()
     gdbserver_accept(s);
     gdbserver_main(s);
 
+    printf("GDB stub had been done.\n");
     close(fd);
     free(s);
     return 0;

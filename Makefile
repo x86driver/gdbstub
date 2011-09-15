@@ -1,7 +1,13 @@
-TARGET = gdbstub
+TARGET = gdbstub wrapper.o
+CFLAGS = -Wall -Wextra
 
-gdbstub:gdbstub.c
-	gcc -Wall -Wextra -o $@ $< -g
+all:$(TARGET)
+
+wrapper.o:wrapper.c wrapper.h
+	gcc $(CFLAGS) -c -o $@ $< -g
+
+gdbstub:gdbstub.c wrapper.o
+	gcc $(CFLAGS) -o $@ $^ -g
 
 clean:
 	rm -rf $(TARGET)
