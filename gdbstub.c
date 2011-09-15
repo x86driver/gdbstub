@@ -9,10 +9,24 @@
 #include <fcntl.h>
 #include <stdlib.h>
 #include <errno.h>
+#include "gdbstub.h"
+#include "wrapper.h"
 
 struct GDBState {
     int fd;
 };
+
+#if 0
+static void cpu_read_registers(char *buf)
+{
+    int i;
+    int regs[CPU_REGS];
+
+    for (i = 0; i < CPU_REGS; ++i) {
+        regs[i] = get_reg(env, i);
+    }
+}
+#endif
 
 static void gdbserver_accept(struct GDBState *s)
 {
@@ -92,20 +106,9 @@ static int get_char(struct GDBState *s)
     return ch;
 }
 
-static void htoa(uint8_t checksum, char *out)
+static uint8_t tohex(uint8_t value)
 {
-    uint8_t tmp = checksum / 16;
-    if (tmp > 9)
-        *out++ = tmp + 'W';
-    else
-        *out++ = tmp + '0';
-
-    checksum -= tmp * 16;
-    if (checksum > 9)
-        checksum += 'W';
-    else
-        checksum += '0';
-    *out = checksum;
+    return (value > 9 ? value + 'W' : value + '0');
 }
 
 static uint8_t do_checksum(char *ptr)
@@ -125,7 +128,7 @@ static uint8_t do_checksum(char *ptr)
 
 static void gdb_reply(struct GDBState *s, char *ptr)
 {
-    char outbuf[256] = "";
+    char outbuf[MAX_PACKET_LEN] = "";
     char *outptr = &outbuf[0];
     size_t len = strlen(ptr);
     uint8_t checksum;
@@ -141,8 +144,8 @@ static void gdb_reply(struct GDBState *s, char *ptr)
     outptr += len;
     *outptr++ = '#';
     checksum = do_checksum(&outbuf[0]);
-    htoa(checksum, outptr);
-    outptr += 2;
+    *outptr++ = tohex(checksum >> 4);
+    *outptr++ = tohex(checksum & 0x0f);
     *outptr = '\0';
 
     printf("reply: %s\n", outbuf);
@@ -177,7 +180,7 @@ static int get_packet(struct GDBState *s, char *ptr)
 
 static int gdbserver_main(struct GDBState *s)
 {
-    char buf[256];
+    char buf[MAX_PACKET_LEN];
     char *ptr;
 
     for (;;) {
@@ -188,6 +191,10 @@ static int gdbserver_main(struct GDBState *s)
             case '?':
                 gdb_reply(s, "S05");
                 break;
+//            case 'g':
+//                cpu_read_registers(buf);
+//                gdb_reply(s, buf);
+//                break;
             case 'H':
                 gdb_reply(s, "");
                 break;
