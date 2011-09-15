@@ -59,7 +59,7 @@ static void cpu_read_memory(struct GDBState *s, uint32_t addr, uint32_t len, cha
         addr += 4;
     }
 
-    for (i = 0; i < (len * 2); ++i) {
+    for (i = 0; i < len; ++i) {
         tmp = *memptr++;
         *buf++ = tohex(tmp >> 4);
         *buf++ = tohex(tmp & 0x0f);
@@ -167,6 +167,7 @@ static void gdb_reply(struct GDBState *s, char *ptr)
     char *outptr = &outbuf[0];
     size_t len = strlen(ptr);
     uint8_t checksum;
+    ssize_t ret;
 
     if (len > sizeof(outbuf)) {
         printf("%s: input size is too long\n", __FUNCTION__);
@@ -184,7 +185,9 @@ static void gdb_reply(struct GDBState *s, char *ptr)
     *outptr = '\0';
 
     printf("reply: %s\n", outbuf);
-    write(s->fd, outbuf, strlen(outbuf));
+    ret = write(s->fd, outbuf, strlen(outbuf));
+    if (ret <= 0)   /* FIXME: strlen(outbuf) != 0 always */
+        perror("write error:");
 }
 
 static int get_packet(struct GDBState *s, char *ptr)
@@ -233,7 +236,7 @@ static int gdbserver_main(struct GDBState *s)
                 gdb_reply(s, outbuf);
                 break;
             case 'H':
-                gdb_reply(s, "");
+                gdb_reply(s, "OK");
                 break;
             case 'k':
                 goto end_command;
@@ -251,9 +254,10 @@ static int gdbserver_main(struct GDBState *s)
                 gdb_reply(s, outbuf);
                 break;
             case 'q':
-                if (!strncmp(ptr, "Supported", 9))
-                    gdb_reply(s, "");
-                else if (*ptr == 'C')
+                if (!strncmp(ptr, "Supported", 9)) {
+                    snprintf(outbuf, sizeof(outbuf), "PacketSize=%x", MAX_PACKET_LEN);
+                    gdb_reply(s, outbuf);
+                } else if (*ptr == 'C')
                     gdb_reply(s, "QC1");
                 else
                     gdb_reply(s, "");

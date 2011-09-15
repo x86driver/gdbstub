@@ -2,10 +2,10 @@
 #include "wrapper.h"
 
 static uint32_t reg_table[CPU_REGS] = {
-    0x12345678, 0xfedcba98, 0, 0,
+    0, 0x4007f41b, 0, 0,
     0, 0, 0, 0,
-    0, 0x8000, 0x9000, 0xf0000000,
-    0, 0, 0x8110, 0x9200,
+    0, 0, 0x8000, 0,
+    0, 0x4007f2c8, 0, 0x8204,
     0x10
 };
 

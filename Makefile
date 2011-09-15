@@ -1,5 +1,5 @@
 TARGET = gdbstub wrapper.o
-CFLAGS = -Wall -Wextra
+CFLAGS = -Wall -Wextra -O2
 
 all:$(TARGET)
 
