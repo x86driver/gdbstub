@@ -25,15 +25,40 @@ static inline uint8_t tohex(uint8_t value)
 static void cpu_read_registers(struct GDBState *s, char *buf)
 {
     size_t i;
-    uint32_t regs[CPU_REGS];
+    uint32_t fpa_len;
+    uint32_t regs[CPU_GP_REGS];
+    uint32_t cpsr;
     uint8_t *regptr = (uint8_t*)&regs[0];
     uint8_t tmp;
 
-    for (i = 0; i < CPU_REGS; ++i) {
+    for (i = 0; i < CPU_GP_REGS; ++i) {  /* general purpose r0-r15 */
         regs[i] = get_reg(s->env, i);
     }
 
     for (i = 0; i < sizeof(regs); ++i) {
+        tmp = *regptr++;
+        *buf++ = tohex(tmp >> 4);
+        *buf++ = tohex(tmp & 0x0f);
+    }
+
+    fpa_len = (((CPU_FPA_REGS * 12) + 4) * 2);
+    memset(buf, '0', fpa_len);
+    buf += fpa_len;
+#if 0
+    for (i = 0; i < (CPU_FPA_REGS * 12); ++i) { /* FPA register, 8 * 12 bytes */
+        *buf++ = '0';
+        *buf++ = '0';
+    }
+
+    for (i = 0; i < 4; ++i) {   /* FPA status register, 4 bytes */
+        *buf++ = '0';
+        *buf++ = '0';
+    }
+#endif
+
+    cpsr = get_reg(s->env, 16);
+    regptr = (uint8_t*)&cpsr;
+    for (i = 0; i < sizeof(cpsr); ++i) {    /* CPSR */
         tmp = *regptr++;
         *buf++ = tohex(tmp >> 4);
         *buf++ = tohex(tmp & 0x0f);
