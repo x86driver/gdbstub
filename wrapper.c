@@ -18,6 +18,12 @@ uint32_t get_reg(struct CPUState *env, int reg)
 uint32_t get_mem(struct CPUState *env, uint32_t addr)
 {
     env = env;
-    printf("get mem: 0x%x\n", addr);
+    addr = addr;
     return 0;
+}
+
+void set_reg(struct CPUState *env, int reg, uint32_t val)
+{
+    env = env;
+    reg_table[reg] = val;
 }

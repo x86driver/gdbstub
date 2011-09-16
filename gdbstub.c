@@ -44,17 +44,6 @@ static void cpu_read_registers(struct GDBState *s, char *buf)
     fpa_len = (((CPU_FPA_REGS * 12) + 4) * 2);
     memset(buf, '0', fpa_len);
     buf += fpa_len;
-#if 0
-    for (i = 0; i < (CPU_FPA_REGS * 12); ++i) { /* FPA register, 8 * 12 bytes */
-        *buf++ = '0';
-        *buf++ = '0';
-    }
-
-    for (i = 0; i < 4; ++i) {   /* FPA status register, 4 bytes */
-        *buf++ = '0';
-        *buf++ = '0';
-    }
-#endif
 
     cpsr = get_reg(s->env, 16);
     regptr = (uint8_t*)&cpsr;
@@ -209,8 +198,8 @@ static void gdb_reply(struct GDBState *s, char *ptr)
     *outptr++ = tohex(checksum & 0x0f);
     *outptr = '\0';
 
-    printf("reply: %s\n", outbuf);
-    ret = write(s->fd, outbuf, strlen(outbuf));
+    printf("reply (%lu): %s\n", strlen(outbuf), outbuf);
+    ret = write(s->fd, outbuf+1, strlen(outbuf)-1);
     if (ret <= 0)   /* FIXME: strlen(outbuf) != 0 always */
         perror("write error:");
 }
@@ -241,27 +230,53 @@ static int get_packet(struct GDBState *s, char *ptr)
     return 0;
 }
 
+static void gdb_ack(struct GDBState *s)
+{
+    write(s->fd, "+", 1);
+}
+
 static int gdbserver_main(struct GDBState *s)
 {
     char buf[MAX_PACKET_LEN];
     char outbuf[MAX_PACKET_LEN];
     char *ptr;
     uint32_t addr, len;
+    int32_t thread, type;
 
     for (;;) {
+        memset(buf, 0, sizeof(buf));
+        memset(outbuf, 0, sizeof(outbuf));
         get_packet(s, &buf[0]);
-        printf("%s\n", buf);
+        gdb_ack(s);
+        printf("command (%lu): %s\n", strlen(buf), buf);
         ptr = &buf[3];
         switch (buf[2]) {
             case '?':
-                gdb_reply(s, "S05");
+                gdb_reply(s, "T05thread:00;");
                 break;
             case 'g':
                 cpu_read_registers(s, outbuf);
                 gdb_reply(s, outbuf);
                 break;
             case 'H':
-                gdb_reply(s, "OK");
+                type = *ptr++;
+                thread = strtoull(ptr, (char **)&ptr, 16);
+                if (thread <= 0) {
+                    gdb_reply(s, "OK");
+                    break;
+                } else if (thread > 1) {
+                    gdb_reply(s, "E22");
+                    break;
+                }
+                switch (type) {
+                    case 'c':
+                    case 'g':
+                        gdb_reply(s, "OK");
+                        break;
+                    default:
+                        gdb_reply(s, "E22");
+                        break;
+                }
                 break;
             case 'k':
                 goto end_command;
@@ -282,10 +297,28 @@ static int gdbserver_main(struct GDBState *s)
                 if (!strncmp(ptr, "Supported", 9)) {
                     snprintf(outbuf, sizeof(outbuf), "PacketSize=%x", MAX_PACKET_LEN);
                     gdb_reply(s, outbuf);
+                } else if (!strncmp(ptr, "Offset", 6)) {
+                    gdb_reply(s, "Text=00000000;Data=00000000;Bss=00000000");
                 } else if (*ptr == 'C')
                     gdb_reply(s, "QC1");
                 else
                     gdb_reply(s, "");
+                break;
+            case 'v':
+                if (!strncmp(ptr, "Cont", 4)) {
+                    ptr += 4;
+                    if (*ptr == '?') {
+                        gdb_reply(s, "vCont;c;C;s;S");
+                        break;
+                    }
+                    set_reg(s->env, REG_PC, get_reg(s->env, REG_PC)+4);
+                    gdb_reply(s, "S05");
+                } else
+                    return 0;
+                break;
+            case 'z':
+            case 'Z':
+                gdb_reply(s, "OK");
                 break;
             default:
                 return 0;
