@@ -82,6 +82,18 @@ static void cpu_read_memory(struct GDBState *s, uint32_t addr, uint32_t len, cha
     *buf = '\0';
 }
 
+static int gdb_breakpoint_insert(uint32_t addr, uint32_t len, int type)
+{
+    printf("gdb insert breakpoint on 0x%x, %d bytes, type: %d\n", addr, len, type);
+    return 1;
+}
+
+static int gdb_breakpoint_remove(uint32_t addr, uint32_t len, int type)
+{
+    printf("gdb remove breakpoint on 0x%x, %d bytes, type: %d\n", addr, len, type);
+    return 1;
+}
+
 static void gdbserver_accept(struct GDBState *s)
 {
     struct sockaddr_in sockaddr;
@@ -241,7 +253,7 @@ static int gdbserver_main(struct GDBState *s)
     char outbuf[MAX_PACKET_LEN];
     char *ptr;
     uint32_t addr, len;
-    int32_t thread, type;
+    int32_t thread, type, ret;
 
     for (;;) {
         memset(buf, 0, sizeof(buf));
@@ -264,7 +276,7 @@ static int gdbserver_main(struct GDBState *s)
                 if (thread <= 0) {
                     gdb_reply(s, "OK");
                     break;
-                } else if (thread > 1) {
+                } else if (thread >= 1) {
                     gdb_reply(s, "E22");
                     break;
                 }
@@ -311,14 +323,27 @@ static int gdbserver_main(struct GDBState *s)
                         gdb_reply(s, "vCont;c;C;s;S");
                         break;
                     }
-                    set_reg(s->env, REG_PC, get_reg(s->env, REG_PC)+4);
+                    //set_reg(s->env, REG_PC, get_reg(s->env, REG_PC)+4);
+                    set_reg(s->env, REG_PC, 0x8224);
                     gdb_reply(s, "S05");
                 } else
                     return 0;
                 break;
             case 'z':
             case 'Z':
-                gdb_reply(s, "OK");
+                type = strtoul(ptr, (char **)&ptr, 16);
+                if (*ptr == ',')
+                    ptr++;
+                addr = strtoull(ptr, (char **)&ptr, 16);
+                if (*ptr == ',')
+                    ptr++;
+                len = strtoull(ptr, (char **)&ptr, 16);
+                if (buf[2] == 'Z')
+                    ret = gdb_breakpoint_insert(addr, len, type);
+                else
+                    ret = gdb_breakpoint_remove(addr, len, type);
+                if (ret >= 0)
+                    gdb_reply(s, "OK");
                 break;
             default:
                 return 0;
